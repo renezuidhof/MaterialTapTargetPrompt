@@ -157,6 +157,9 @@ public class PromptOptions<T extends PromptOptions>
      * Listener for when the prompt state changes.
      */
     @Nullable private MaterialTapTargetPrompt.PromptStateChangeListener mPromptStateChangeListener;
+    @Nullable private MaterialTapTargetPrompt.OnPromptClickedListener mPromptFocalClickedListener;
+    @Nullable private MaterialTapTargetPrompt.OnPromptClickedListener mPromptBackgroundClickedListener;
+    @Nullable private MaterialTapTargetPrompt.OnPromptClickedListener mPromptOutsideClickedListener;
 
     /**
      * Additional listener that can be set by other package classes for handling e.g. sequences of
@@ -298,8 +301,16 @@ public class PromptOptions<T extends PromptOptions>
     public T setTarget(@Nullable final View target)
     {
         mTargetView = target;
-        mTargetPosition = null;
-        mTargetSet = mTargetView != null;
+
+        int[] viewPositionOnScreen = new int[2];
+        target.getLocationOnScreen(viewPositionOnScreen);
+
+        float positionX = viewPositionOnScreen[0] + target.getWidth() * 0.5f;
+        float positionY = viewPositionOnScreen[1] + target.getHeight() * 0.5f;
+        mTargetPosition = new PointF(positionX, positionY);
+
+        mTargetSet = true;
+
         return (T) this;
     }
 
@@ -1007,10 +1018,30 @@ public class PromptOptions<T extends PromptOptions>
      * @return This Builder object to allow for chaining of calls to set methods
      */
     @NonNull
-    public T setPromptStateChangeListener(
-            @Nullable final MaterialTapTargetPrompt.PromptStateChangeListener listener)
+    public T setPromptStateChangeListener(@Nullable final MaterialTapTargetPrompt.PromptStateChangeListener listener)
     {
         mPromptStateChangeListener = listener;
+        return (T) this;
+    }
+
+    @NonNull
+    public T setOnPromptFocalClicked(@Nullable final MaterialTapTargetPrompt.OnPromptClickedListener listener) {
+        mPromptFocalClickedListener = listener;
+
+        return (T) this;
+    }
+
+    @NonNull
+    public T setOnPromptBackgroundClicked(@Nullable final MaterialTapTargetPrompt.OnPromptClickedListener listener) {
+        mPromptBackgroundClickedListener = listener;
+
+        return (T) this;
+    }
+
+    @NonNull
+    public T setOnPromptOutsideClicked(@Nullable final MaterialTapTargetPrompt.OnPromptClickedListener listener) {
+        mPromptOutsideClickedListener = listener;
+
         return (T) this;
     }
 
@@ -1022,7 +1053,7 @@ public class PromptOptions<T extends PromptOptions>
      * @param listener The listener to use
      */
     public void setSequenceListener(
-            @Nullable final MaterialTapTargetPrompt.PromptStateChangeListener listener)
+        @Nullable final MaterialTapTargetPrompt.PromptStateChangeListener listener)
     {
         mSequencePromptStateChangeListener = listener;
     }
@@ -1038,6 +1069,30 @@ public class PromptOptions<T extends PromptOptions>
         if (mPromptStateChangeListener != null)
         {
             mPromptStateChangeListener.onPromptStateChanged(prompt, state);
+        }
+    }
+
+    public void onPromptFocalClicked(@NonNull final MaterialTapTargetPrompt prompt)
+    {
+        if (mPromptFocalClickedListener != null)
+        {
+            mPromptFocalClickedListener.onClick(prompt);
+        }
+    }
+
+    public void onPromptBackgroundClicked(@NonNull final MaterialTapTargetPrompt prompt)
+    {
+        if (mPromptBackgroundClickedListener != null)
+        {
+            mPromptBackgroundClickedListener.onClick(prompt);
+        }
+    }
+
+    public void onPromptOutsideClicked(@NonNull final MaterialTapTargetPrompt prompt)
+    {
+        if (mPromptOutsideClickedListener != null)
+        {
+            mPromptOutsideClickedListener.onClick(prompt);
         }
     }
 
@@ -1273,7 +1328,7 @@ public class PromptOptions<T extends PromptOptions>
      */
     @NonNull
     public T setCaptureTouchEventOutsidePrompt(
-            final boolean captureTouchEventOutsidePrompt)
+        final boolean captureTouchEventOutsidePrompt)
     {
         mCaptureTouchEventOutsidePrompt = captureTouchEventOutsidePrompt;
         return (T) this;
