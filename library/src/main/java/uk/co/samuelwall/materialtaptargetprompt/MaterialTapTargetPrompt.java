@@ -31,6 +31,7 @@ import android.graphics.Region;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.text.TextUtils;
+import android.view.GestureDetector;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -43,6 +44,7 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
+import androidx.core.view.GestureDetectorCompat;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import uk.co.samuelwall.materialtaptargetprompt.extras.PromptOptions;
@@ -55,9 +57,7 @@ import uk.co.samuelwall.materialtaptargetprompt.extras.PromptOptions;
  * Material Design guidelines.</p>
  * </div>
  */
-public class MaterialTapTargetPrompt
-{
-
+public class MaterialTapTargetPrompt {
     /**
      * Prompt has yet to be shown.
      */
@@ -105,14 +105,19 @@ public class MaterialTapTargetPrompt
     public static final int STATE_NON_FOCAL_PRESSED = 8;
 
     /**
+     * The prompt has been pressed outside the focal area.
+     */
+    public static final int STATE_OUTSIDE_PRESSED = 9;
+
+    /**
      * The prompt has been dismissed by the show for timeout.
      */
-    public static final int STATE_SHOW_FOR_TIMEOUT = 9;
+    public static final int STATE_SHOW_FOR_TIMEOUT = 10;
 
     /**
      * The prompt has been dismissed by the system back button being pressed.
      */
-    public static final int STATE_BACK_BUTTON_PRESSED = 10;
+    public static final int STATE_BACK_BUTTON_PRESSED = 11;
 
     /**
      * The view that renders the prompt.
@@ -155,10 +160,10 @@ public class MaterialTapTargetPrompt
      * Task used for triggering the prompt timeout.
      */
     final Runnable mTimeoutRunnable = () -> {
-        // Emit the state change and dismiss the prompt
-        onPromptStateChanged(STATE_SHOW_FOR_TIMEOUT);
-        dismiss();
-    };
+    // Emit the state change and dismiss the prompt
+    onPromptStateChanged(STATE_SHOW_FOR_TIMEOUT);
+    dismiss();
+};
 
     /**
      * Listener for the view layout changing.
@@ -173,6 +178,7 @@ public class MaterialTapTargetPrompt
     MaterialTapTargetPrompt(final PromptOptions promptOptions)
     {
         final ResourceFinder resourceFinder = promptOptions.getResourceFinder();
+
         mView = new PromptView(resourceFinder.getContext());
         mView.mPrompt = this;
         mView.mPromptOptions = promptOptions;
@@ -180,11 +186,16 @@ public class MaterialTapTargetPrompt
         mView.mPromptTouchedListener = new PromptView.PromptTouchedListener()
         {
             @Override
-            public void onFocalPressed()
+            public void onFocalSingleTapUp(MotionEvent event)
             {
                 if (!isDismissing())
                 {
                     onPromptStateChanged(STATE_FOCAL_PRESSED);
+
+                    if (event.getAction() == MotionEvent.ACTION_UP) {
+                        mView.mPromptOptions.onPromptFocalClicked(mView.mPrompt);
+                    }
+
                     if (mView.mPromptOptions.getAutoFinish())
                     {
                         finish();
@@ -193,11 +204,34 @@ public class MaterialTapTargetPrompt
             }
 
             @Override
-            public void onNonFocalPressed()
+            public void onNonFocalSingleTapUp(MotionEvent event)
             {
                 if (!isDismissing())
                 {
                     onPromptStateChanged(STATE_NON_FOCAL_PRESSED);
+
+                    if (event.getAction() == MotionEvent.ACTION_UP) {
+                        mView.mPromptOptions.onPromptBackgroundClicked(mView.mPrompt);
+                    }
+
+                    if (mView.mPromptOptions.getAutoDismiss())
+                    {
+                        dismiss();
+                    }
+                }
+            }
+
+            @Override
+            public void onOutsideSingleTapUp(MotionEvent event)
+            {
+                if (!isDismissing())
+                {
+                    onPromptStateChanged(STATE_OUTSIDE_PRESSED);
+
+                    if (event.getAction() == MotionEvent.ACTION_UP) {
+                        mView.mPromptOptions.onPromptOutsideClicked(mView.mPrompt);
+                    }
+
                     if (mView.mPromptOptions.getAutoDismiss())
                     {
                         dismiss();
@@ -225,32 +259,32 @@ public class MaterialTapTargetPrompt
         mStatusBarHeight = mView.mPromptOptions.getIgnoreStatusBar() ? 0 : rect.top;
 
         mGlobalLayoutListener = () -> {
-            final View targetView = mView.mPromptOptions.getTargetView();
-            if (targetView != null)
-            {
-                final boolean isTargetAttachedToWindow;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
-                {
-                    isTargetAttachedToWindow = targetView.isAttachedToWindow();
-                }
-                else
-                {
-                    isTargetAttachedToWindow = targetView.getWindowToken() != null;
-                }
+//        final View targetView = mView.mPromptOptions.getTargetView();
+//        if (targetView != null)
+//        {
+//            final boolean isTargetAttachedToWindow;
+//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+//            {
+//                isTargetAttachedToWindow = targetView.isAttachedToWindow();
+//            }
+//            else
+//            {
+//                isTargetAttachedToWindow = targetView.getWindowToken() != null;
+//            }
+//
+//            if (!isTargetAttachedToWindow)
+//            {
+//                return;
+//            }
+//        }
+        prepare();
 
-                if (!isTargetAttachedToWindow)
-                {
-                    return;
-                }
-            }
-            prepare();
-
-            if (mAnimationCurrent == null)
-            {
-                // Force a relayout to update the view's location
-                updateAnimation(1, 1);
-            }
-        };
+        if (mAnimationCurrent == null)
+        {
+            // Force a relayout to update the view's location
+            updateAnimation(1, 1);
+        }
+    };
     }
 
     /**
@@ -409,9 +443,9 @@ public class MaterialTapTargetPrompt
         mAnimationCurrent.setDuration(225);
         mAnimationCurrent.setInterpolator(mView.mPromptOptions.getAnimationInterpolator());
         mAnimationCurrent.addUpdateListener(animation -> {
-            final float value = (float) animation.getAnimatedValue();
-            updateAnimation(1f + ((1f - value) / 4), value);
-        });
+        final float value = (float) animation.getAnimatedValue();
+        updateAnimation(1f + ((1f - value) / 4), value);
+    });
         mAnimationCurrent.addListener(new AnimatorListener()
         {
             @Override
@@ -442,9 +476,9 @@ public class MaterialTapTargetPrompt
         mAnimationCurrent.setDuration(225);
         mAnimationCurrent.setInterpolator(mView.mPromptOptions.getAnimationInterpolator());
         mAnimationCurrent.addUpdateListener(animation -> {
-            final float value = (float) animation.getAnimatedValue();
-            updateAnimation(value, value);
-        });
+        final float value = (float) animation.getAnimatedValue();
+        updateAnimation(value, value);
+    });
         mAnimationCurrent.addListener(new AnimatorListener()
         {
             @Override
@@ -513,9 +547,9 @@ public class MaterialTapTargetPrompt
         mAnimationCurrent.setInterpolator(mView.mPromptOptions.getAnimationInterpolator());
         mAnimationCurrent.setDuration(225);
         mAnimationCurrent.addUpdateListener(animation -> {
-            final float value = (float) animation.getAnimatedValue();
-            updateAnimation(value, value);
-        });
+        final float value = (float) animation.getAnimatedValue();
+        updateAnimation(value, value);
+    });
         mAnimationCurrent.addListener(new AnimatorListener()
         {
             @Override
@@ -580,9 +614,9 @@ public class MaterialTapTargetPrompt
         mAnimationFocalRipple.setInterpolator(mView.mPromptOptions.getAnimationInterpolator());
         mAnimationFocalRipple.setDuration(500);
         mAnimationFocalRipple.addUpdateListener(animation -> {
-            final float value = (float) animation.getAnimatedValue();
-            mView.mPromptOptions.getPromptFocal().updateRipple(value, (1.6f - value) * 2);
-        });
+        final float value = (float) animation.getAnimatedValue();
+        mView.mPromptOptions.getPromptFocal().updateRipple(value, (1.6f - value) * 2);
+    });
         mAnimationFocalBreathing.start();
     }
 
@@ -614,27 +648,27 @@ public class MaterialTapTargetPrompt
     void prepare()
     {
         final View targetRenderView = mView.mPromptOptions.getTargetRenderView();
-        if (targetRenderView == null)
-        {
-            mView.mTargetRenderView = mView.mPromptOptions.getTargetView();
-        }
-        else
-        {
+//        if (targetRenderView == null)
+//        {
+//            mView.mTargetRenderView = mView.mPromptOptions.getTargetView();
+//        }
+//        else
+//        {
             mView.mTargetRenderView = targetRenderView;
-        }
+//        }
         updateClipBounds();
-        final View targetView = mView.mPromptOptions.getTargetView();
-        if (targetView != null)
-        {
-            final int[] viewPosition = new int[2];
-            mView.getLocationInWindow(viewPosition);
-            mView.mPromptOptions.getPromptFocal().prepare(mView.mPromptOptions, targetView, viewPosition);
-        }
-        else
-        {
+//        final View targetView = mView.mPromptOptions.getTargetView();
+//        if (targetView != null)
+//        {
+//            final int[] viewPosition = new int[2];
+//            mView.getLocationInWindow(viewPosition);
+//            mView.mPromptOptions.getPromptFocal().prepare(mView.mPromptOptions, targetView, viewPosition);
+//        }
+//        else
+//        {
             final PointF targetPosition = mView.mPromptOptions.getTargetPosition();
             mView.mPromptOptions.getPromptFocal().prepare(mView.mPromptOptions, targetPosition.x, targetPosition.y);
-        }
+//        }
         mView.mPromptOptions.getPromptText().prepare(mView.mPromptOptions, mView.mClipToBounds, mView.mClipBounds);
         mView.mPromptOptions.getPromptBackground().prepare(mView.mPromptOptions, mView.mClipToBounds, mView.mClipBounds);
         updateIconPosition();
@@ -650,9 +684,9 @@ public class MaterialTapTargetPrompt
         {
             final RectF mFocalBounds = mView.mPromptOptions.getPromptFocal().getBounds();
             mView.mIconDrawableLeft = mFocalBounds.centerX()
-                    - (mView.mIconDrawable.getIntrinsicWidth() / 2);
+            - (mView.mIconDrawable.getIntrinsicWidth() / 2);
             mView.mIconDrawableTop = mFocalBounds.centerY()
-                    - (mView.mIconDrawable.getIntrinsicHeight() / 2);
+            - (mView.mIconDrawable.getIntrinsicHeight() / 2);
         }
         else if (mView.mTargetRenderView != null)
         {
@@ -723,8 +757,10 @@ public class MaterialTapTargetPrompt
      * View used to render the tap target.
      */
     @VisibleForTesting
-    public static class PromptView extends View
+    public static class PromptView extends View implements GestureDetector.OnGestureListener
     {
+        private GestureDetectorCompat mDetector;
+
         /*int padding;
         Paint paddingPaint = new Paint();
         Paint itemPaint = new Paint();*/
@@ -750,6 +786,8 @@ public class MaterialTapTargetPrompt
             setId(R.id.material_target_prompt_view);
             setFocusableInTouchMode(true);
             requestFocus();
+
+            mDetector = new GestureDetectorCompat(context,this);
 
             // Hardware acceleration for clipping to a path is not supported on SDK < 18
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN_MR2)
@@ -858,55 +896,22 @@ public class MaterialTapTargetPrompt
         }
 
         @Override
-        public boolean onTouchEvent(MotionEvent event)
-        {
-            final float x = event.getX();
-            final float y = event.getY();
-            //If the touch point is within the prompt background stop the event from passing through it
-            boolean captureEvent = (!mClipToBounds || mClipBounds.contains((int) x, (int) y))
-                    && mPromptOptions.getPromptBackground().contains(x, y);
-            //If the touch event was at least in the background and in the focal
-            if (captureEvent && mPromptOptions.getPromptFocal().contains(x, y))
-            {
-                //Override allowing the touch event to pass through the view with the user defined value
-                captureEvent = mPromptOptions.getCaptureTouchEventOnFocal();
-                if (mPromptTouchedListener != null)
-                {
-                    mPromptTouchedListener.onFocalPressed();
-                }
-            }
-            else
-            {
-                // If the prompt background was not touched
-                if (!captureEvent)
-                {
-                    captureEvent = mPromptOptions.getCaptureTouchEventOutsidePrompt();
-                }
-                if (mPromptTouchedListener != null)
-                {
-                    mPromptTouchedListener.onNonFocalPressed();
-                }
-            }
-            return captureEvent;
-        }
-
-        @Override
         public boolean dispatchKeyEventPreIme(KeyEvent event)
         {
             if (mPromptOptions.getBackButtonDismissEnabled()
-                    && event.getKeyCode() == KeyEvent.KEYCODE_BACK)
+                && event.getKeyCode() == KeyEvent.KEYCODE_BACK)
             {
                 KeyEvent.DispatcherState state = getKeyDispatcherState();
                 if (state != null)
                 {
                     if (event.getAction() == KeyEvent.ACTION_DOWN
-                            && event.getRepeatCount() == 0)
+                        && event.getRepeatCount() == 0)
                     {
                         state.startTracking(event, this);
                         return true;
                     }
                     else if (event.getAction() == KeyEvent.ACTION_UP
-                            && !event.isCanceled() && state.isTracking(event))
+                        && !event.isCanceled() && state.isTracking(event))
                     {
                         if (mPromptTouchedListener != null)
                         {
@@ -949,17 +954,96 @@ public class MaterialTapTargetPrompt
         {
             setClickable(true);
             setOnClickListener(view -> {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH_MR1)
+            {
+                final View targetView = mPromptOptions.getTargetView();
+                if (targetView != null)
                 {
-                    final View targetView = mPromptOptions.getTargetView();
-                    if (targetView != null)
-                    {
-                        targetView.callOnClick();
-                    }
+                    targetView.callOnClick();
+                }
+            }
+
+            mPrompt.finish();
+        });
+        }
+
+//        @Override
+//        public boolean dispatchTouchEvent(MotionEvent motionEvent) {
+//            System.out.println("(TUTORIAL) dispatchTouchEvent");
+//
+//            return true;
+//        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent event)
+        {
+//            System.out.println("(TUTORIAL) onTouchEvent");
+            return mDetector.onTouchEvent(event);
+        }
+
+        @Override
+        public boolean onDown(MotionEvent motionEvent) {
+//            final float x = motionEvent.getX();
+//            final float y = motionEvent.getY();
+//
+//            boolean isFocalTouched = mPromptOptions.getPromptFocal().contains(x, y);
+//
+//            if (isFocalTouched) {
+//                mPromptOptions.getTargetView().dispatchTouchEvent(motionEvent);
+//            }
+
+            return true;
+        }
+
+        @Override
+        public boolean onSingleTapUp(MotionEvent motionEvent) {
+            final float x = motionEvent.getX();
+            final float y = motionEvent.getY();
+
+            boolean isBackgroundTouched = mPromptOptions.getPromptBackground().contains(x, y);
+            boolean isFocalTouched = mPromptOptions.getPromptFocal().contains(x, y);
+
+            if (isFocalTouched) {
+                if (mPromptTouchedListener != null) {
+                    mPromptTouchedListener.onFocalSingleTapUp(motionEvent);
                 }
 
-                mPrompt.finish();
-            });
+                MotionEvent downEvent = MotionEvent.obtain(motionEvent.getDownTime(), motionEvent.getEventTime(), MotionEvent.ACTION_DOWN, x, y, motionEvent.getMetaState());
+                mPromptOptions.getTargetView().dispatchTouchEvent(downEvent);
+                mPromptOptions.getTargetView().dispatchTouchEvent(motionEvent);
+
+                return true;
+            }
+
+            if (isBackgroundTouched) {
+                if (mPromptTouchedListener != null) {
+                    mPromptTouchedListener.onNonFocalSingleTapUp(motionEvent);
+                }
+
+                return true;
+            }
+
+            if (mPromptTouchedListener != null) {
+                mPromptTouchedListener.onOutsideSingleTapUp(motionEvent);
+            }
+
+            return true;
+        }
+
+        @Override
+        public void onShowPress(MotionEvent motionEvent) { }
+
+        @Override
+        public boolean onScroll(MotionEvent motionEvent, MotionEvent motionEvent1, float v, float v1) {
+            return false;
+        }
+
+        @Override
+        public void onLongPress(MotionEvent motionEvent) { }
+
+        @Override
+        public boolean onFling(MotionEvent motionEvent, MotionEvent motionEvent1, float v, float v1) {
+            return false;
         }
 
         /**
@@ -970,13 +1054,18 @@ public class MaterialTapTargetPrompt
             /**
              * Called when the focal is pressed.
              */
-            void onFocalPressed();
+            void onFocalSingleTapUp(MotionEvent event);
 
             /**
-             * Called when anywhere outside the focal is pressed or the system back button is
+             * Called when the non-focal part is pressed or the system back button is
              * pressed.
              */
-            void onNonFocalPressed();
+            void onNonFocalSingleTapUp(MotionEvent event);
+
+            /**
+             * Called when anywhere outside of the prompt is touched
+             */
+            void onOutsideSingleTapUp(MotionEvent event);
 
             /**
              * Called when the system back button is pressed.
@@ -986,49 +1075,49 @@ public class MaterialTapTargetPrompt
 
         class AccessibilityDelegate extends View.AccessibilityDelegate {
 
-            @Override
-            public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info)
+        @Override
+        public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info)
+        {
+            super.onInitializeAccessibilityNodeInfo(host, info);
+
+            @Nullable final Package viewPackage = PromptView.this.getClass().getPackage();
+            if (viewPackage != null)
             {
-                super.onInitializeAccessibilityNodeInfo(host, info);
+                info.setPackageName(viewPackage.getName());
+            }
+            info.setSource(host);
+            info.setClickable(true);
+            info.setEnabled(true);
+            info.setChecked(false);
+            info.setFocusable(true);
+            info.setFocused(true);
 
-                @Nullable final Package viewPackage = PromptView.this.getClass().getPackage();
-                if (viewPackage != null)
-                {
-                    info.setPackageName(viewPackage.getName());
-                }
-                info.setSource(host);
-                info.setClickable(true);
-                info.setEnabled(true);
-                info.setChecked(false);
-                info.setFocusable(true);
-                info.setFocused(true);
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
-                {
-                    info.setLabelFor(mPromptOptions.getTargetView());
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
-                {
-                    info.setDismissable(true);
-                }
-
-                info.setContentDescription(mPromptOptions.getContentDescription());
-                info.setText(mPromptOptions.getContentDescription());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1)
+            {
+                info.setLabelFor(mPromptOptions.getTargetView());
             }
 
-            @Override
-            public void onPopulateAccessibilityEvent(View host, AccessibilityEvent event)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
             {
-                super.onPopulateAccessibilityEvent(host, event);
+                info.setDismissable(true);
+            }
 
-                final CharSequence contentDescription = mPromptOptions.getContentDescription();
-                if (!TextUtils.isEmpty(contentDescription))
-                {
-                    event.getText().add(contentDescription);
-                }
+            info.setContentDescription(mPromptOptions.getContentDescription());
+            info.setText(mPromptOptions.getContentDescription());
+        }
+
+        @Override
+        public void onPopulateAccessibilityEvent(View host, AccessibilityEvent event)
+        {
+            super.onPopulateAccessibilityEvent(host, event);
+
+            final CharSequence contentDescription = mPromptOptions.getContentDescription();
+            if (!TextUtils.isEmpty(contentDescription))
+            {
+                event.getText().add(contentDescription);
             }
         }
+    }
     }
 
     /**
@@ -1174,6 +1263,10 @@ public class MaterialTapTargetPrompt
          *               {@link #STATE_DISMISSED}
          */
         void onPromptStateChanged(@NonNull final MaterialTapTargetPrompt prompt, final int state);
+    }
+
+    public interface OnPromptClickedListener {
+        void onClick(@NonNull final MaterialTapTargetPrompt prompt);
     }
 
     static class AnimatorListener implements Animator.AnimatorListener
